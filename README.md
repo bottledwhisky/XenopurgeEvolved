@@ -2,6 +2,8 @@
 
 Dynamic xeno variants that evolve as you progress, creating unpredictable threats.
 
+** WARNING: This mod will likely make the game significantly harder. **
+
 A MelonLoader mod for Xenopurge.
 
 ![Screenshot](screenshots\terrify_marksman.png)
