@@ -60,7 +60,7 @@ namespace XenopurgeEvolved
             }
 
             // Get Scout UnitDataSO
-            if (LevelProgressionDataSO_Patch.scoutUnitDataSo == null)
+            if (ScoutUnitDataLoader.GetScoutUnitDataSO() == null)
             {
                 MelonLogger.Warning("[MaulerIncubator] scoutUnitDataSo is null, cannot spawn Scout");
                 return;
@@ -99,7 +99,7 @@ namespace XenopurgeEvolved
                 }
 
                 // Spawn the Scout on the death tile
-                spawnUnitCallback(LevelProgressionDataSO_Patch.scoutUnitDataSo, deathTile);
+                spawnUnitCallback(ScoutUnitDataLoader.GetScoutUnitDataSO(), deathTile);
 
                 MelonLogger.Msg($"[MaulerIncubator] Spawned Scout at {deathTile.Coords} after Mauler death");
             }
