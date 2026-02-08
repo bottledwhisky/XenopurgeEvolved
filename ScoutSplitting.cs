@@ -44,29 +44,63 @@ namespace XenopurgeEvolved
         public static void Prefix(TestGame __instance)
         {
             instance = __instance;
+            // Reset cache when starting a new game
+            ScoutUnitDataLoader.ResetCache();
         }
     }
 
-    [HarmonyPatch(typeof(LevelProgressionDataSO))]
-    [HarmonyPatch("GetEnemySpawnData")]
-    public class LevelProgressionDataSO_Patch
+    // Helper class to get Scout UnitDataSO directly from Unity's Resources system
+    public static class ScoutUnitDataLoader
     {
-        public static UnitDataSO scoutUnitDataSo = null;
-        public static System.Reflection.FieldInfo _unitTagField = AccessTools.Field(typeof(UnitDataSO), "_unitTag");
-        [HarmonyPostfix]
-        public static void Postfix(int levelIndex, ref IEnumerable<KeyValuePair<UnitDataSO, int>> __result)
+        private static UnitDataSO _cachedScoutUnitDataSo = null;
+        private static System.Reflection.FieldInfo _unitTagField = AccessTools.Field(typeof(UnitDataSO), "_unitTag");
+
+        public static UnitDataSO GetScoutUnitDataSO()
         {
-            if (scoutUnitDataSo == null)
+            // Return cached value if available
+            if (_cachedScoutUnitDataSo != null)
             {
-                foreach (var unitDataSo in __result)
+                return _cachedScoutUnitDataSo;
+            }
+
+            try
+            {
+                // Use Unity's Resources.FindObjectsOfTypeAll to get ALL UnitDataSO objects
+                // This is more reliable than relying on current level's spawn data
+                var allUnitDataSOs = Resources.FindObjectsOfTypeAll<UnitDataSO>();
+
+                if (allUnitDataSOs == null || allUnitDataSOs.Length == 0)
                 {
-                    if ((UnitTag)_unitTagField.GetValue(unitDataSo.Key) == UnitTag.Scout)
+                    MelonLogger.Warning("[ScoutSplitting] No UnitDataSO objects found in Resources");
+                    return null;
+                }
+
+                // Find the Scout UnitDataSO by checking the _unitTag field
+                foreach (var unitDataSO in allUnitDataSOs)
+                {
+                    var unitTag = (UnitTag)_unitTagField.GetValue(unitDataSO);
+                    if (unitTag == UnitTag.Scout)
                     {
-                        scoutUnitDataSo = unitDataSo.Key;
-                        break;
+                        _cachedScoutUnitDataSo = unitDataSO;
+                        MelonLogger.Msg($"[ScoutSplitting] Successfully loaded Scout UnitDataSO: {unitDataSO.name}");
+                        return _cachedScoutUnitDataSo;
                     }
                 }
+
+                MelonLogger.Warning("[ScoutSplitting] Scout UnitDataSO not found in all loaded UnitDataSO objects");
+                return null;
             }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"[ScoutSplitting] Error loading Scout UnitDataSO: {e}");
+                return null;
+            }
+        }
+
+        // Reset cache when starting a new game
+        public static void ResetCache()
+        {
+            _cachedScoutUnitDataSo = null;
         }
     }
 
@@ -228,7 +262,8 @@ namespace XenopurgeEvolved
                 return;
             }
 
-            if (LevelProgressionDataSO_Patch.scoutUnitDataSo == null)
+            var scoutUnitDataSo = ScoutUnitDataLoader.GetScoutUnitDataSO();
+            if (scoutUnitDataSo == null)
             {
                 MelonLogger.Warning("[ScoutSplitting] scoutUnitDataSo is null, cannot spawn scouts");
                 return;
@@ -281,7 +316,7 @@ namespace XenopurgeEvolved
                 // Create units data for CreateUnits method
                 var scoutSpawnData = new List<KeyValuePair<UnitDataSO, int>>
                 {
-                    new KeyValuePair<UnitDataSO, int>(LevelProgressionDataSO_Patch.scoutUnitDataSo, tilesToSpawnOn.Count)
+                    new KeyValuePair<UnitDataSO, int>(scoutUnitDataSo, tilesToSpawnOn.Count)
                 };
 
                 // Create the additional scouts using CreateUnits
@@ -406,7 +441,8 @@ namespace XenopurgeEvolved
                     return;
                 }
 
-                if (LevelProgressionDataSO_Patch.scoutUnitDataSo == null)
+                var scoutUnitDataSo = ScoutUnitDataLoader.GetScoutUnitDataSO();
+                if (scoutUnitDataSo == null)
                 {
                     MelonLogger.Warning("[ScoutSplitting] scoutUnitDataSo is null");
                     return;
@@ -451,7 +487,7 @@ namespace XenopurgeEvolved
                 // Spawn an additional Scout on each tile that had a NEW Scout spawned
                 foreach (var tile in newScoutSpawnTiles)
                 {
-                    spawnUnitCallback(LevelProgressionDataSO_Patch.scoutUnitDataSo, tile);
+                    spawnUnitCallback(scoutUnitDataSo, tile);
                 }
 
                 // Invalidate speed cache after spawning new scouts

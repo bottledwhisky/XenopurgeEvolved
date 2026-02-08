@@ -47,10 +47,17 @@ namespace XenopurgeEvolved
         // Called from GameManager OnUpdate patch to accumulate game time
         public static void OnGameUpdate(float deltaTime)
         {
-            currentGameTime += deltaTime;
+            try
+            {
+                currentGameTime += deltaTime;
 
-            // Check all active buffs for expiry
-            CheckExpiredBuffs();
+                // Check all active buffs for expiry
+                CheckExpiredBuffs();
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"ScoutSacrifice.OnGameUpdate error: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         private static void CheckExpiredBuffs()
@@ -90,20 +97,27 @@ namespace XenopurgeEvolved
             Enumerations.UnitStats stat,
             string buffGuidPrefix)
         {
-            string unitId = unit.UnitId;
-
-            if (!buffs.ContainsKey(unitId))
-                return;
-
-            var buffData = buffs[unitId];
-
-            // If buff was marked as expired by the update loop, remove it now
-            if (!buffData.isActive && unit._statChanges.ContainsKey(buffGuidPrefix + "_" + unitId))
+            try
             {
-                string fullGuid = buffGuidPrefix + "_" + unitId;
-                unit.ReverseChangeOfStat(fullGuid);
-                buffs.Remove(unitId);
-                MelonLogger.Msg($"Scout Sacrifice buff ({stat}) expired for {unit.UnitName}");
+                string unitId = unit.UnitId;
+
+                if (!buffs.ContainsKey(unitId))
+                    return;
+
+                var buffData = buffs[unitId];
+
+                // If buff was marked as expired by the update loop, remove it now
+                if (!buffData.isActive && unit._statChanges.ContainsKey(buffGuidPrefix + "_" + unitId))
+                {
+                    string fullGuid = buffGuidPrefix + "_" + unitId;
+                    unit.ReverseChangeOfStat(fullGuid);
+                    buffs.Remove(unitId);
+                    MelonLogger.Msg($"Scout Sacrifice buff ({stat}) expired for {unit.UnitName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"ScoutSacrifice.CheckAndExpireBuff error: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -160,78 +174,85 @@ namespace XenopurgeEvolved
 
         private static void __instance_OnDeath(BattleUnit __instance)
         {
-            // Check if unit died (health is now 0 after damage)
-            if (__instance.UnitTag == Enumerations.UnitTag.Scout)
+            try
             {
-                // Check if this is a Scout unit (you may need to check UnitTag or another identifier)
-                // For now, assuming Scouts have a specific tag or we apply to all enemy deaths
-                // You may need to add: if (__instance.UnitTag != Enumerations.UnitTag.Scout) return;
-
-                Tile currentTile = __instance.CurrentTile;
-                if (currentTile == null)
-                    return;
-
-                // Get all allied units on the same tile (other enemy AI units)
-                var alliesOnTile = currentTile.CurrentStateOfTile.UnitsOnTile
-                    .Where(u => u.Team == __instance.Team && u != __instance && u.IsAlive)
-                    .ToList();
-
-                if (alliesOnTile.Count == 0)
+                // Check if unit died (health is now 0 after damage)
+                if (__instance.UnitTag == Enumerations.UnitTag.Scout)
                 {
-                    MelonLogger.Msg($"Scout died, but no allies on the tile.");
-                    return;
+                    // Check if this is a Scout unit (you may need to check UnitTag or another identifier)
+                    // For now, assuming Scouts have a specific tag or we apply to all enemy deaths
+                    // You may need to add: if (__instance.UnitTag != Enumerations.UnitTag.Scout) return;
+
+                    Tile currentTile = __instance.CurrentTile;
+                    if (currentTile == null)
+                        return;
+
+                    // Get all allied units on the same tile (other enemy AI units)
+                    var alliesOnTile = currentTile.CurrentStateOfTile.UnitsOnTile
+                        .Where(u => u.Team == __instance.Team && u != __instance && u.IsAlive)
+                        .ToList();
+
+                    if (alliesOnTile.Count == 0)
+                    {
+                        MelonLogger.Msg($"Scout died, but no allies on the tile.");
+                        return;
+                    }
+
+                    var currentGameTime = ScoutSacrifice.currentGameTime;
+                    var activeSpeedBuffs = ScoutSacrifice.activeSpeedBuffs;
+                    var activePowerBuffs = ScoutSacrifice.activePowerBuffs;
+                    var BUFF_DURATION = ScoutSacrifice.BUFF_DURATION;
+                    var BUFF_SPEED = ScoutSacrifice.BUFF_SPEED;
+                    var BUFF_POWER = ScoutSacrifice.BUFF_POWER;
+                    var BUFF_GUID_SPEED = ScoutSacrifice.BUFF_GUID_SPEED;
+                    var BUFF_GUID_POWER = ScoutSacrifice.BUFF_GUID_POWER;
+
+                    float expiryTime = currentGameTime + BUFF_DURATION;
+                    ScoutSacrifice.CleanupBuffsForUnit(__instance.UnitId);
+
+                    MelonLogger.Msg($"Scout Sacrifice triggered! Buffing {alliesOnTile.Count} enemy allies on tile.");
+
+                    // Apply buffs to each ally
+                    foreach (var ally in alliesOnTile)
+                    {
+                        if (ally == __instance) continue;
+                        string unitId = ally.UnitId;
+
+                        // Apply or refresh speed buff
+                        if (activeSpeedBuffs.ContainsKey(unitId))
+                        {
+                            // Refresh duration only - don't reapply the stat change
+                            activeSpeedBuffs[unitId] = (expiryTime, true);
+                            MelonLogger.Msg($"Refreshed speed buff for {ally.UnitName}");
+                        }
+                        else
+                        {
+                            // New buff - apply stat change
+                            activeSpeedBuffs[unitId] = (expiryTime, true);
+                            ally.ChangeStat(Enumerations.UnitStats.Speed, BUFF_SPEED, BUFF_GUID_SPEED + "_" + unitId);
+                            MelonLogger.Msg($"Applied speed buff to {ally.UnitName}");
+                        }
+
+                        // Apply or refresh power buff
+                        if (activePowerBuffs.ContainsKey(unitId))
+                        {
+                            // Refresh duration only
+                            activePowerBuffs[unitId] = (expiryTime, true);
+                            MelonLogger.Msg($"Refreshed power buff for {ally.UnitName}");
+                        }
+                        else
+                        {
+                            // New buff - apply stat change
+                            activePowerBuffs[unitId] = (expiryTime, true);
+                            ally.ChangeStat(Enumerations.UnitStats.Power, BUFF_POWER, BUFF_GUID_POWER + "_" + unitId);
+                            MelonLogger.Msg($"Applied power buff to {ally.UnitName}");
+                        }
+                    }
                 }
-
-                var currentGameTime = ScoutSacrifice.currentGameTime;
-                var activeSpeedBuffs = ScoutSacrifice.activeSpeedBuffs;
-                var activePowerBuffs = ScoutSacrifice.activePowerBuffs;
-                var BUFF_DURATION = ScoutSacrifice.BUFF_DURATION;
-                var BUFF_SPEED = ScoutSacrifice.BUFF_SPEED;
-                var BUFF_POWER = ScoutSacrifice.BUFF_POWER;
-                var BUFF_GUID_SPEED = ScoutSacrifice.BUFF_GUID_SPEED;
-                var BUFF_GUID_POWER = ScoutSacrifice.BUFF_GUID_POWER;
-
-                float expiryTime = currentGameTime + BUFF_DURATION;
-                ScoutSacrifice.CleanupBuffsForUnit(__instance.UnitId);
-
-                MelonLogger.Msg($"Scout Sacrifice triggered! Buffing {alliesOnTile.Count} enemy allies on tile.");
-
-                // Apply buffs to each ally
-                foreach (var ally in alliesOnTile)
-                {
-                    if (ally == __instance) continue;
-                    string unitId = ally.UnitId;
-
-                    // Apply or refresh speed buff
-                    if (activeSpeedBuffs.ContainsKey(unitId))
-                    {
-                        // Refresh duration only - don't reapply the stat change
-                        activeSpeedBuffs[unitId] = (expiryTime, true);
-                        MelonLogger.Msg($"Refreshed speed buff for {ally.UnitName}");
-                    }
-                    else
-                    {
-                        // New buff - apply stat change
-                        activeSpeedBuffs[unitId] = (expiryTime, true);
-                        ally.ChangeStat(Enumerations.UnitStats.Speed, BUFF_SPEED, BUFF_GUID_SPEED + "_" + unitId);
-                        MelonLogger.Msg($"Applied speed buff to {ally.UnitName}");
-                    }
-
-                    // Apply or refresh power buff
-                    if (activePowerBuffs.ContainsKey(unitId))
-                    {
-                        // Refresh duration only
-                        activePowerBuffs[unitId] = (expiryTime, true);
-                        MelonLogger.Msg($"Refreshed power buff for {ally.UnitName}");
-                    }
-                    else
-                    {
-                        // New buff - apply stat change
-                        activePowerBuffs[unitId] = (expiryTime, true);
-                        ally.ChangeStat(Enumerations.UnitStats.Power, BUFF_POWER, BUFF_GUID_POWER + "_" + unitId);
-                        MelonLogger.Msg($"Applied power buff to {ally.UnitName}");
-                    }
-                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"ScoutSacrifice.__instance_OnDeath error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -242,14 +263,21 @@ namespace XenopurgeEvolved
     {
         public static void Postfix(BattleUnit __instance)
         {
-            if (!Evolution.IsActivated<ScoutSacrifice>())
-                return;
+            try
+            {
+                if (!Evolution.IsActivated<ScoutSacrifice>())
+                    return;
 
-            ScoutSacrifice.CheckAndExpireBuff(__instance,
-                ScoutSacrifice.activeSpeedBuffs,
-                Enumerations.UnitStats.Speed,
-                ScoutSacrifice.BUFF_GUID_SPEED
-            );
+                ScoutSacrifice.CheckAndExpireBuff(__instance,
+                    ScoutSacrifice.activeSpeedBuffs,
+                    Enumerations.UnitStats.Speed,
+                    ScoutSacrifice.BUFF_GUID_SPEED
+                );
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"BattleUnit_Speed_Getter_Patch error: {ex.Message}\n{ex.StackTrace}");
+            }
         }
     }
 
@@ -258,14 +286,21 @@ namespace XenopurgeEvolved
     {
         public static void Postfix(BattleUnit __instance)
         {
-            if (!Evolution.IsActivated<ScoutSacrifice>())
-                return;
+            try
+            {
+                if (!Evolution.IsActivated<ScoutSacrifice>())
+                    return;
 
-            ScoutSacrifice.CheckAndExpireBuff(__instance,
-                ScoutSacrifice.activePowerBuffs,
-                Enumerations.UnitStats.Power,
-                ScoutSacrifice.BUFF_GUID_POWER
-            );
+                ScoutSacrifice.CheckAndExpireBuff(__instance,
+                    ScoutSacrifice.activePowerBuffs,
+                    Enumerations.UnitStats.Power,
+                    ScoutSacrifice.BUFF_GUID_POWER
+                );
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"BattleUnit_Power_Getter_Patch error: {ex.Message}\n{ex.StackTrace}");
+            }
         }
     }
 }

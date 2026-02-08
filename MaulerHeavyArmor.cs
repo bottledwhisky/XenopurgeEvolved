@@ -57,11 +57,6 @@ namespace XenopurgeEvolved
                         if (UnityEngine.Random.Range(0, 100) < negateChancePercent)
                         {
                             damage = 0f;
-                            MelonLogger.Msg($"Mauler Heavy Armor: Damage negated ({negateChancePercent}% chance)");
-                        }
-                        else
-                        {
-                            MelonLogger.Msg($"Mauler Heavy Armor: Damage not negated (rolled above {negateChancePercent}%)");
                         }
                     }
                 }
